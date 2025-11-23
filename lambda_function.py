@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor  # dictionary cusor용
 import requests
 import json
 import os
+import hashlib
 
 RDS_HOST = os.environ.get("DB_HOST")
 DB_USER = os.environ.get("DB_USER")
@@ -168,3 +169,184 @@ API_CONFIG = [
         },
     },
 ]
+
+
+def get_connection():
+    try:
+        return psycopg2.connect(
+            host=RDS_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            dbname=DB_NAME,
+            connection_timeout=30,
+        )
+    except Exception as e:
+        logger.error(f"DB 연결 실패: {e}")
+        raise e
+
+
+def generate_unique_id(item, keys):
+    """
+    item data와 key 목록을 조합하여 해시 생성 => unique ID
+    """
+    try:
+        unique_str = "".join([str(item.get(k, "")) for k in keys])
+        # MD5 hash 생성
+        return hashlib.md5(unique_str.encode("utf-8")).hexdigest()
+    except Exception as e:
+        logger.error(f"ID 생성 실패: {e}")
+        return None
+
+
+def parse_api_response(json_data):
+    """공공데이터포털 API 응답 정규화 Dict -> List, List로 통일"""
+    try:
+        body = json_data.get("body")
+        if not body:
+            return []
+        items = body.get("items")
+        if not items:
+            return []
+        item_data = items.get("item")
+        if not item_data:
+            return []
+
+        if isinstance(item_data, dict):
+            return [item_data]
+        elif isinstance(item_data, list):
+            return item_data  # list면 그냥 return
+        return []
+    except Exception as e:
+        logger.error(f"parsing error: {e}")
+        return []
+
+
+def save_to_db_dynamic(
+    conn, table_name, pk_column, mapping, data_list, pk_gen_keys=None
+):
+    """동적 쿼리 저장 + ID 생성 로직"""
+    if not data_list:
+        return 0
+
+    db_columns = list(mapping.keys())
+    placeholders = ["%s"] * len(db_columns)
+
+    # Update -> pk는 업데이트하지 않음
+    update_clauses = [
+        f"{col} = EXCLUDED.{col}" for col in db_columns if col != pk_column
+    ]
+
+    sql = f"""
+        INSERT INTO {table_name} ({', '.join(db_columns)})
+        VALUES ({', '.join(placeholders)})
+        ON CONFLICT ({pk_column})
+        DO UPDATE SET
+            {', '.join(update_clauses)},
+            updated_at = NOW()
+    """
+
+    values_batch = []
+    for item in data_list:
+        # generate pk
+        if pk_gen_keys:
+            generated_id = generate_unique_id(item, pk_gen_keys)
+            item["generated_id"] = generated_id  # item dictionary에 추가
+
+        # check pk
+        json_pk_key = mapping[pk_column]
+        if not item.get(json_pk_key):
+            continue
+
+        row_values = []
+        for db_col in db_columns:
+            json_key = mapping[db_col]
+            row_values.append(item.get(json_key, None))
+
+        values_batch.append(tuple(row_values))
+
+    if not values_batch:
+        return 0
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.executemany(sql, values_batch)
+        conn.commit()
+        return len(values_batch)
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"[{table_name}] DB 저장 실패: {e}")
+        return 0
+
+
+def lambda_handler(event, context):
+    conn = None
+    total_processed_all = 0
+
+    try:
+        conn = get_connection()
+
+        for config in API_CONFIG:
+            endpoint = config["endpoint"]
+            table_name = config["table"]
+            mapping = config["mapping"]
+            pk_column = config["pk"]
+            pk_gen_keys = config.get("pk_gen_keys")  # ID 생성 키 목록 else None
+
+            page_no = 1
+            num_of_rows = 1000
+            total_count = 0
+
+            logger.info(f"[{endpoint}] 시작")
+
+            while True:
+                # API 호출 URL
+                url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows={num_of_rows}"
+
+                try:
+                    response = requests.get(url, timeout=10)
+                    if response.status_code != 200:
+                        logger.error(f"HTTP error: {response.status_code}")
+                        break
+
+                    try:
+                        raw_data = response.json()
+                    except:
+                        break
+
+                    # check Total Count
+                    if page_no == 1:
+                        body = raw_data.get("body", {})
+                        total_count = body.get("totalCount", 0)
+                        if total_count == 0:
+                            break
+
+                    rows = parse_api_response(raw_data)
+                    if not rows:
+                        break
+
+                    # DB 저장
+                    count = save_to_db_dynamic(
+                        conn, table_name, pk_column, mapping, rows, pk_gen_keys
+                    )
+                    total_processed_all += count
+
+                    logger.info(f"-> {table_name}: {count}건 ({page_no}p)")
+
+                    if (page_no * num_of_rows) >= total_count:
+                        break
+                    page_no += 1
+
+                except Exception as e:
+                    logger.error(f"loop error: {e}")
+                    break
+
+    except Exception as e:
+        logger.info(f"치명적 오류: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps(f"작업 완료: 총 {total_processed_all}"),
+    }
