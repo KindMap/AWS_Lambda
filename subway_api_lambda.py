@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import logging
 from urllib.parse import unquote
 import re  # 정규 표현식 모듈
+from math import radians, sin, cos, sqrt, atan2  # math 모듈 최상단 이동
 
 # 로깅 설정
 logger = logging.getLogger()
@@ -72,11 +73,13 @@ def lambda_handler(event, context):
 
             # pathParameters가 없으면 경로에서 직접 추출
             if path.startswith(path_prefix) and len(path) > len(path_prefix):
-                param = path[len(path_prefix) :].strip("/")
-                if param:
-                    return param
+                return path[len(path_prefix) :].strip("/")
 
             return None
+
+        # ------------------------------------------------------------------
+        # 1. 역 정보 조회 (/stations, /stations/{identifier})
+        # ------------------------------------------------------------------
 
         # /stations/{identifier} - 역 코드 또는 역 이름으로 특정 역 정보 조회
         if (
@@ -84,8 +87,6 @@ def lambda_handler(event, context):
             and path != "/stations"
             and http_method == "GET"
         ):
-            # url 경로에서 파라미터 추출 및 디코딩
-            # 한글은 자동으로 인코딩되기 때문에 디코딩 과정 필요
             raw_param = extract_path_param("station_cd", "/stations/")
 
             if raw_param:
@@ -93,16 +94,13 @@ def lambda_handler(event, context):
 
                 # 한글 유무로 판별
                 if re.search("[가-힣]", decoded_param):
-                    logger.info(
-                        f"Fetching station by Name (Hangul detected): {decoded_param}"
-                    )
+                    logger.info(f"Fetching station by Name (Hangul): {decoded_param}")
                     return handle_get_station_by_name(decoded_param)
                 else:
                     logger.info(
                         f"Fetching station by Code (Alphanumeric): {decoded_param}"
                     )
                     return handle_get_station_by_code(decoded_param)
-
             else:
                 return response(400, {"error": "역 코드 또는 역 이름이 필요합니다"})
 
@@ -110,9 +108,26 @@ def lambda_handler(event, context):
         elif path == "/stations" and http_method == "GET":
             return handle_get_stations(query_params)
 
+        # ------------------------------------------------------------------
+        # 2. 구간 정보 및 거리 계산
+        # ------------------------------------------------------------------
+
         # /sections - 전체 또는 호선별 구간 조회
         elif path == "/sections" and http_method == "GET":
             return handle_get_sections(query_params)
+
+        # /route/distance - 경로 거리 계산
+        elif path == "/route/distance" and http_method == "POST":
+            body = json.loads(event.get("body", "{}"))
+            return handle_calculate_route_distance(body)
+
+        # /nearby-stations - 주변 역 검색
+        elif path == "/nearby-stations" and http_method == "GET":
+            return handle_get_nearby_stations(query_params)
+
+        # ------------------------------------------------------------------
+        # 3. 환승역 편의성 (/transfer-convenience)
+        # ------------------------------------------------------------------
 
         # /transfer-convenience/{station_cd} - 특정 환승역 편의성
         elif (
@@ -131,30 +146,53 @@ def lambda_handler(event, context):
         elif path == "/transfer-convenience" and http_method == "GET":
             return handle_get_all_transfer_conv()
 
-        # /route/distance - 경로 거리 계산
-        elif path == "/route/distance" and http_method == "POST":
-            body = json.loads(event.get("body", "{}"))
-            return handle_calculate_route_distance(body)
+        # ------------------------------------------------------------------
+        # 4. 공통 편의시설 조회 (Dynamic Routing)
+        #    /toilets (전체/쿼리), /toilets/서울역 (경로파라미터) 모두 지원
+        # ------------------------------------------------------------------
 
-        # /nearby-stations - 주변 역 검색
-        elif path == "/nearby-stations" and http_method == "GET":
-            return handle_get_nearby_stations(query_params)
+        # [수정됨] 경로 파라미터까지 지원하도록 로직 개선
+        elif http_method == "GET":
+            # 1) 정확히 일치하는 경우 (예: /toilets) -> 전체 조회 or 쿼리파라미터 조회
+            if path in TABLE_MAPPING:
+                table_name = TABLE_MAPPING[path]
+                logger.info(f"Fetching common data from table: {table_name}")
+                return handle_get_common_data(table_name, query_params)
 
-        # /편의시설 시설명 - 편의시설 검색
-        elif path in TABLE_MAPPING and http_method == "GET":
-            table_name = TABLE_MAPPING[path]
-            logger.info(f"Fetching data from table: {table_name}")
-            return handle_get_common_data(table_name, query_params)
+            # 2) 경로 파라미터가 포함된 경우 (예: /toilets/서울역) -> 특정 역 조회
+            # TABLE_MAPPING의 키들 중 현재 path의 앞부분과 일치하는 것이 있는지 확인
+            matched_route = next(
+                (route for route in TABLE_MAPPING if path.startswith(route + "/")), None
+            )
+
+            if matched_route:
+                table_name = TABLE_MAPPING[matched_route]
+                raw_param = path[len(matched_route) :].strip(
+                    "/"
+                )  # 경로에서 파라미터 추출
+                decoded_param = unquote(raw_param)
+
+                logger.info(f"Fetching {table_name} with path param: {decoded_param}")
+
+                # 경로 파라미터를 쿼리 파라미터 딕셔너리에 병합하여 전달
+                # 한글이면 stn_nm, 아니면 stn_cd로 처리
+                dynamic_params = query_params.copy()
+                if re.search("[가-힣]", decoded_param):
+                    dynamic_params["stn_nm"] = decoded_param
+                else:
+                    dynamic_params["stn_cd"] = decoded_param
+
+                return handle_get_common_data(table_name, dynamic_params)
+
+            # 매칭되는 경로가 없으면 404
+            logger.warning(f"Endpoint not found - Path: {path}")
+            return response(
+                404, {"error": "엔드포인트를 찾을 수 없습니다", "path": path}
+            )
 
         else:
-            logger.warning(f"Endpoint not found - Path: {path}, Method: {http_method}")
             return response(
-                404,
-                {
-                    "error": "엔드포인트를 찾을 수 없습니다",
-                    "path": path,
-                    "method": http_method,
-                },
+                405, {"error": "허용되지 않는 메소드입니다", "method": http_method}
             )
 
     except json.JSONDecodeError as e:
@@ -487,8 +525,6 @@ def handle_get_nearby_stations(params: Dict) -> Dict:
 
 def haversine_distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Haversine 공식을 사용한 두 지점 간 거리 계산 (미터 단위)"""
-    from math import radians, sin, cos, sqrt, atan2
-
     R = 6371000  # 지구 반지름 (미터)
 
     lat1_rad = radians(lat1)
@@ -529,7 +565,7 @@ def handle_get_common_data(table_name: str, params: Dict) -> Dict:
     # 역 코드, 역명, 호선명
     stn_cd = params.get("stn_cd") or params.get("station_cd")
     stn_nm = params.get("stn_nm") or params.get("station_name")
-    line_nm = params.get("line_nm")
+    line_nm = params.get("line_nm") or params.get("line")  # [수정] line 키도 허용
 
     try:
         query = f"SELECT * FROM {table_name}"
@@ -541,12 +577,13 @@ def handle_get_common_data(table_name: str, params: Dict) -> Dict:
             query_params["stn_cd"] = stn_cd
 
         if stn_nm:
-            # DB 컬럼명이 name이라고 가정 (다를 경우 'station_name' 등으로 수정 필요)
+            # DB 컬럼명이 name이라고 가정
             conditions.append("name = %(stn_nm)s")
             query_params["stn_nm"] = stn_nm
 
         if line_nm:
-            conditions.append("line = %(line)s")
+            # [수정] DB 컬럼명이 line_nm이므로 조건절과 파라미터 키를 모두 line_nm으로 통일
+            conditions.append("line_nm = %(line_nm)s")
             query_params["line_nm"] = line_nm
 
         # 조건 적용
