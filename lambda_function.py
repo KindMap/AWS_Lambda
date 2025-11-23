@@ -7,6 +7,9 @@ import requests
 import json
 import os
 import hashlib
+from dotenv import load_dotenv
+
+load_dotenv()
 
 RDS_HOST = os.environ.get("DB_HOST")
 DB_USER = os.environ.get("DB_USER")
@@ -100,9 +103,11 @@ API_CONFIG = [
     },
     {
         # 휠체어 급속 충전기 조회
+        # => mngNo가 '-'로 들어오는 경우가 있어 generated_id 사용
         "endpoint": "getWksnWhclCharge",
         "table": "subway_charger",
-        "pk": "mng_no",
+        "pk": "generated_id",
+        "pk_gen_keys": ["stnCd", "lineNm", "fcltNm"],  # 고유 키 조합
         "mapping": {
             "mng_no": "mngNo",
             "stn_cd": "stnCd",
@@ -148,7 +153,7 @@ API_CONFIG = [
             "stn_nm": "stnNm",
             "line_nm": "lineNm",
             "fclt_nm": "fcltNm",
-            "sfty_scf_yn": "sftyScfIdEn",  # 안전발판유무
+            "sfty_scf_yn": "sftyScfldEn",  # 안전발판유무
             "mngr_tel": "mngrTelno",  # 관리자 전화번호
             "crtr_ymd": "crtrYmd",
         },
@@ -178,7 +183,7 @@ def get_connection():
             user=DB_USER,
             password=DB_PASSWORD,
             dbname=DB_NAME,
-            connection_timeout=30,
+            connect_timeout=30,
         )
     except Exception as e:
         logger.error(f"DB 연결 실패: {e}")
@@ -203,7 +208,8 @@ def parse_api_response(json_data):
     try:
         body = json_data.get("body")
         if not body:
-            return []
+            body = json_data.get("response", {}).get("body")
+
         items = body.get("items")
         if not items:
             return []
@@ -294,6 +300,7 @@ def lambda_handler(event, context):
 
             page_no = 1
             num_of_rows = 1000
+            # num_of_rows = 10 # localtest
             total_count = 0
 
             logger.info(f"[{endpoint}] 시작")
@@ -302,25 +309,53 @@ def lambda_handler(event, context):
                 # API 호출 URL
                 # url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows={num_of_rows}"
                 # local test 용도
-                url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows=10"
+
+                # params dictionary 사용
+                params = {
+                    "serviceKey": API_KEY,
+                    "dataType": "JSON",
+                    "pageNo": page_no,
+                    "numOfRows": num_of_rows,
+                }
+
+                # slash 중복 방지
+                request_url = f"{BASE_URL.rstrip('/')}/{endpoint}"
 
                 try:
-                    response = requests.get(url, timeout=10)
+                    # requests가 알아서 인코딩 처리
+                    response = requests.get(request_url, params=params, timeout=30)
                     if response.status_code != 200:
                         logger.error(f"HTTP error: {response.status_code}")
                         break
 
                     try:
                         raw_data = response.json()
-                    except:
+                        # logger.info(
+                        #     f"[{endpoint}] Raw Response: {json.dumps(raw_data, ensure_ascii=False)[:200]}..."
+                        # )
+                    except json.JSONDecodeError:
+                        logger.error(f"응답이 JSON이 아님: {response.text[:100]}")
+                        break
+
+                    header = raw_data.get("header")
+                    if not header:
+                        # 만약 header가 없다면 'response' 안에 감싸져 있는지 확인 (공공데이터 표준)
+                        header = raw_data.get("response", {}).get("header", {})
+
+                    if header.get("resultCode") != "00":
+                        # resultCode가 없으면 None이 반환되므로 에러 처리됨
+                        msg = header.get(
+                            "resultMsg", f"알 수 없는 에러 (전체 응답: {raw_data})"
+                        )
+                        logger.error(f"API Error: {msg}")
                         break
 
                     # check Total Count
-                    if page_no == 1:
-                        body = raw_data.get("body", {})
-                        total_count = body.get("totalCount", 0)
-                        if total_count == 0:
-                            break
+                    # if page_no == 1:
+                    #     body = raw_data.get("body", {})
+                    #     total_count = body.get("totalCount", 0)
+                    #     if total_count == 0:
+                    #         break
 
                     rows = parse_api_response(raw_data)
                     if not rows:
@@ -334,7 +369,8 @@ def lambda_handler(event, context):
 
                     logger.info(f"-> {table_name}: {count}건 ({page_no}p)")
 
-                    if (page_no * num_of_rows) >= total_count:
+                    if len(rows) < num_of_rows:
+                        logger.info(f"-> 마지막 페이지 도달. 종료.")
                         break
                     page_no += 1
 
@@ -357,9 +393,6 @@ def lambda_handler(event, context):
 # local test용 코드 추가
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
-
-    load_dotenv()
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
