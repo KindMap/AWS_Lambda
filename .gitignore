@@ -3,3 +3,7 @@ venv/
 *.env
 
 package/
+
+subway_api_package.zip
+
+lambda_function.zip

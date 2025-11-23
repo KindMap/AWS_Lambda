@@ -577,8 +577,7 @@ def handle_get_common_data(table_name: str, params: Dict) -> Dict:
             query_params["stn_cd"] = stn_cd
 
         if stn_nm:
-            # DB 컬럼명이 name이라고 가정
-            conditions.append("name = %(stn_nm)s")
+            conditions.append("stn_nm = %(stn_nm)s")
             query_params["stn_nm"] = stn_nm
 
         if line_nm:
