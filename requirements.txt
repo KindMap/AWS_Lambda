@@ -1,0 +1,8 @@
+# 외부 API 호출용
+requests==2.31.0
+
+# PostgreSQL DB 연결용
+psycopg2-binary==2.9.9
+
+# 로컬 개발/테스트용
+python-dotenv==1.0.0
