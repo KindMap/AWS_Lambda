@@ -300,7 +300,9 @@ def lambda_handler(event, context):
 
             while True:
                 # API 호출 URL
-                url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows={num_of_rows}"
+                # url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows={num_of_rows}"
+                # local test 용도
+                url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows=10"
 
                 try:
                     response = requests.get(url, timeout=10)
@@ -350,3 +352,26 @@ def lambda_handler(event, context):
         "statusCode": 200,
         "body": json.dumps(f"작업 완료: 총 {total_processed_all}"),
     }
+
+
+# local test용 코드 추가
+
+if __name__ == "__main__":
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    print("local test started")
+
+    # Mock event data
+    test_event = {}
+    test_context = None
+
+    # run lambda handler
+    result = lambda_handler(test_event, test_context)
+
+    print(f"test completed. result: {result}")
