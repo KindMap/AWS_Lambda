@@ -6,3 +6,7 @@ psycopg2-binary==2.9.9
 
 # 로컬 개발/테스트용
 python-dotenv==1.0.0
+
+# aws bedrock
+boto3
+botocore
