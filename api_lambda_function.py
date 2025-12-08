@@ -573,7 +573,7 @@ def handle_get_common_data(table_name: str, params: Dict) -> Dict:
         conditions = []
 
         if stn_cd:
-            conditions.append("station_cd = %(stn_cd)s")
+            conditions.append("stn_cd = %(stn_cd)s")
             query_params["stn_cd"] = stn_cd
 
         if stn_nm:

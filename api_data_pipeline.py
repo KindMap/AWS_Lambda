@@ -1,4 +1,3 @@
-# 공공데이터 포털 API ETL 파이프라인
 import sys
 import logging
 import psycopg2
@@ -21,25 +20,13 @@ BASE_URL = os.environ.get("BASE_URL")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# 공공데이터포털의 API endpoint별 JSON 응답 키 매핑을 위한 설정
-# endpoint -> 호출할 API 주소의 뒷부분
-# table -> 데이터를 저장할 RDS의 테이블명
-# pk -> DB 테이블의 Primary Key column명
-# mapping -> {"DB column명": "API_JSON키"}
-
-# 'https://apis.data.go.kr/B553766/wksn/{endpoint}?serviceKey={API_KEY}&dataType=JSON'
-# dataType -> JSON으로 고정
-
-
-# mngNo => pk로 세팅하기에 부적절함
-# 모든 테이블이 generated_id를 pk로 사용하도록 수정
-
+# API 설정 (기존과 동일)
 API_CONFIG = [
     {
         "endpoint": "getWksnElvtr",
         "table": "subway_elevator",
-        "pk": "generated_id",  # PK 변경
-        "pk_gen_keys": ["stnCd", "lineNm", "fcltNm"],  # 유니크 ID 생성 기준
+        "pk": "generated_id",
+        "pk_gen_keys": ["stnCd", "lineNm", "fcltNm"],
         "mapping": {
             "generated_id": "generated_id",
             "mng_no": "mngNo",
@@ -168,11 +155,7 @@ API_CONFIG = [
         "endpoint": "getWksnHelper",
         "table": "subway_helper",
         "pk": "generated_id",
-        "pk_gen_keys": [
-            "stnCd",
-            "lineNm",
-            "stnNm",
-        ],  # 도우미는 시설명이 없으므로 역명 사용
+        "pk_gen_keys": ["stnCd", "lineNm", "stnNm"],
         "mapping": {
             "generated_id": "generated_id",
             "stn_cd": "stnCd",
@@ -186,7 +169,7 @@ API_CONFIG = [
         "endpoint": "getWksnEsctr",
         "table": "subway_escalator",
         "pk": "generated_id",
-        "pk_gen_keys": ["stnCd", "lineNm", "fcltNm"],  # 고유 ID 생성 기준
+        "pk_gen_keys": ["stnCd", "lineNm", "fcltNm"],
         "mapping": {
             "generated_id": "generated_id",
             "mng_no": "mngNo",
@@ -195,159 +178,14 @@ API_CONFIG = [
             "line_nm": "lineNm",
             "fclt_nm": "fcltNm",
             "oprtng_situ": "oprtngSitu",
-            "upbdnb_se": "upbdnbSe",  # 상하행 구분
-            "bgng_flr_dtl": "bgngFlrDtlPstn",  # 시작층 상세위치
-            "end_flr_dtl": "endFlrDtlPstn",  # 종료층 상세위치
-            "vcnt_entrc_no": "vcntEntrcNo",  # 근접 출입구 번호
+            "upbdnb_se": "upbdnbSe",
+            "bgng_flr_dtl": "bgngFlrDtlPstn",
+            "end_flr_dtl": "endFlrDtlPstn",
+            "vcnt_entrc_no": "vcntEntrcNo",
             "crtr_ymd": "crtrYmd",
         },
     },
 ]
-
-# API_CONFIG = [
-#     {
-#         # 엘리베이터 조회
-#         "endpoint": "getWksnElvtr",
-#         "table": "subway_elevator",
-#         "pk": "mng_no",
-#         "mapping": {
-#             "mng_no": "mngNo",  # 관리번호
-#             "stn_cd": "stnCd",  # 역코드
-#             "stn_nm": "stnNm",  # 역명
-#             "line_nm": "lineNm",  # 호선명
-#             "fclt_nm": "fcltNm",  # 시설명
-#             "oprtng_situ": "oprtngSitu",  # 가동현황
-#             "dtl_pstn": "dtlPstn",  # 상세위치
-#             "pscp_nope": "pscpNope",  # 정원인원 수
-#             "crtr_ymd": "crtrYmd",  # 기준일자
-#         },
-#     },
-#     {
-#         # 장애인화장실 조회
-#         "endpoint": "getWksnRstrm",
-#         "table": "subway_toilet",
-#         "pk": "mng_no",
-#         "mapping": {
-#             "mng_no": "mngNo",
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "fclt_nm": "fcltNm",
-#             "whlchr_acs_yn": "whlchrAcsPsbltyYn",  # 휠체어 접근 가능 여부
-#             "gate_inout": "gateInoutSe",  # 게이트 내외 구분(외부/내부)
-#             "rstrm_info": "rstrmInfo",  # 화장실 구분 상세
-#             "stn_flr": "stnFlr",  # 위치층
-#             "crtr_ymd": "crtrYmd",
-#         },
-#     },
-#     {
-#         # 휠체어리프트 조회
-#         "endpoint": "getWksnWhcllift",
-#         "table": "subway_lift",
-#         "pk": "mng_no",
-#         "mapping": {
-#             "mng_no": "mngNo",
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "fclt_nm": "fcltNm",
-#             "oprtng_situ": "oprtngSitu",
-#             "limit_wht": "limitWht",
-#             "bgng_flr_dtl": "bgngFlrDtlPstn",  # 시작층 상세위치
-#             "end_flr_dtl": "endFlrDtlPstn",  # 종료층 상세위치
-#             "crtr_ymd": "crtrYmd",
-#             "vcnt_entrc_no": "vcntEntrcNo",  # 근접 출입구 위치 => db 추가하기
-#         },
-#     },
-#     {
-#         # 무빙워크 조회 데이터
-#         "endpoint": "getWksnMvnwlk",
-#         "table": "subway_movingwalk",
-#         "pk": "mng_no",
-#         "mapping": {
-#             "mng_no": "mngNo",
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "fclt_nm": "fcltNm",
-#             "oprtng_situ": "oprtngSitu",
-#             "crtr_ymd": "crtrYmd",
-#             "vcnt_entrc_no": "vcntEntrcNo",  # 근접 출입구 위치 => db 추가하기
-#         },
-#     },
-#     {
-#         # 휠체어 급속 충전기 조회
-#         # => mngNo가 '-'로 들어오는 경우가 있어 generated_id 사용
-#         "endpoint": "getWksnWhclCharge",
-#         "table": "subway_charger",
-#         "pk": "generated_id",
-#         "pk_gen_keys": ["stnCd", "lineNm", "fcltNm"],  # 고유 키 조합
-#         "mapping": {
-#             "mng_no": "mngNo",
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "fclt_nm": "fcltNm",
-#             "dtl_pstn": "dtlPstn",
-#             "cnnctr_se": "cnnctrSe",  # 커넥터 구분
-#             "elctc_fac_cnt": "elctcFacCnt",  # 충전설비수
-#             "utztn_crg": "utztnCrg",  # 이용요금
-#             "oper_tel": "operInstTelno",  # 운영기관 전화번호
-#             "crtr_ymd": "crtrYmd",
-#         },
-#     },
-#     {
-#         # 수어 영상 전화기 조회
-#         "endpoint": "getWksnSlng",
-#         "table": "subway_sign_phone",
-#         "pk": "generated_id",  # 생성된 ID를 PK로 사용
-#         "pk_gen_keys": ["stnCd", "lineNm", "dtlPstn"],  # 유니크 조합 키
-#         "mapping": {
-#             "generated_id": "generated_id",  # 매핑에도 추가
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "fclt_nm": "fcltNm",
-#             "dtl_pstn": "dtlPstn",
-#             "vcnt_entrc_no": "vcntEntrcNo",  # 근접 출입구 위치
-#             "stn_flr": "stnFlr",
-#             "utztn_hr": "utztnHr",  # 이용 시간
-#             "crtr_ymd": "crtrYmd",
-#         },
-#     },
-#     {
-#         # 안전발판 보유현황 조회
-#         "endpoint": "getWksnSafePlfm",
-#         "table": "subway_safe_platform",
-#         "pk": "generated_id",
-#         "pk_gen_keys": ["stnCd", "lineNm"],  # 역+노선 기준으로 하나씩 있다고 가정
-#         "mapping": {
-#             "generated_id": "generated_id",
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "fclt_nm": "fcltNm",
-#             "sfty_scf_yn": "sftyScfldEn",  # 안전발판유무
-#             "mngr_tel": "mngrTelno",  # 관리자 전화번호
-#             "crtr_ymd": "crtrYmd",
-#         },
-#     },
-#     {
-#         # 교통약자 도우미 현황 조회
-#         "endpoint": "getWksnHelper",
-#         "table": "subway_helper",
-#         "pk": "generated_id",
-#         "pk_gen_keys": ["stnCd", "lineNm"],
-#         "mapping": {
-#             "generated_id": "generated_id",
-#             "stn_cd": "stnCd",
-#             "stn_nm": "stnNm",
-#             "line_nm": "lineNm",
-#             "helper_tel": "trffcWksnHlprTelno",  # 해당 교통약자도우미 전화번호
-#             "crtr_ymd": "crtrYmd",
-#         },
-#     },
-# ]
 
 
 def get_connection():
@@ -365,12 +203,8 @@ def get_connection():
 
 
 def generate_unique_id(item, keys):
-    """
-    item data와 key 목록을 조합하여 해시 생성 => unique ID
-    """
     try:
         unique_str = "".join([str(item.get(k, "")) for k in keys])
-        # MD5 hash 생성
         return hashlib.md5(unique_str.encode("utf-8")).hexdigest()
     except Exception as e:
         logger.error(f"ID 생성 실패: {e}")
@@ -378,7 +212,6 @@ def generate_unique_id(item, keys):
 
 
 def parse_api_response(json_data):
-    """공공데이터포털 API 응답 정규화 Dict -> List, List로 통일"""
     try:
         body = json_data.get("body")
         if not body:
@@ -394,7 +227,7 @@ def parse_api_response(json_data):
         if isinstance(item_data, dict):
             return [item_data]
         elif isinstance(item_data, list):
-            return item_data  # list면 그냥 return
+            return item_data
         return []
     except Exception as e:
         logger.error(f"parsing error: {e}")
@@ -404,14 +237,12 @@ def parse_api_response(json_data):
 def save_to_db_dynamic(
     conn, table_name, pk_column, mapping, data_list, pk_gen_keys=None
 ):
-    """동적 쿼리 저장 + ID 생성 로직"""
     if not data_list:
         return 0
 
     db_columns = list(mapping.keys())
     placeholders = ["%s"] * len(db_columns)
 
-    # Update -> pk는 업데이트하지 않음
     update_clauses = [
         f"{col} = EXCLUDED.{col}" for col in db_columns if col != pk_column
     ]
@@ -427,12 +258,10 @@ def save_to_db_dynamic(
 
     values_batch = []
     for item in data_list:
-        # generate pk
         if pk_gen_keys:
             generated_id = generate_unique_id(item, pk_gen_keys)
-            item["generated_id"] = generated_id  # item dictionary에 추가
+            item["generated_id"] = generated_id
 
-        # check pk
         json_pk_key = mapping[pk_column]
         if not item.get(json_pk_key):
             continue
@@ -458,6 +287,97 @@ def save_to_db_dynamic(
         return 0
 
 
+def update_summary_table(conn):
+    """
+    모든 편의시설 업데이트 후, subway_facility_total 테이블을 재집계하는 함수
+    - '역' 이름을 기준으로 그룹화 (REPLACE(TRIM(name), '역', '') 사용)
+    - oprtng_situ 컬럼이 있는 경우, 'S'(중단) 상태는 카운트에서 제외
+    """
+    try:
+        logger.info("subway_facility_total 테이블 업데이트 시작...")
+        with conn.cursor() as cursor:
+            # 1. 기존 데이터 초기화 (전체 재집계)
+            cursor.execute("TRUNCATE TABLE subway_facility_total;")
+
+            # 2. 집계 및 삽입 쿼리
+            # 가동현황(oprtng_situ)이 존재하는 테이블은 'S'가 아닌 것만 카운트
+            sql = """
+            INSERT INTO subway_facility_total (
+                station_name, station_cd_list, 
+                charger_count, elevator_count, escalator_count,
+                lift_count, movingwalk_count, safe_platform_count, 
+                sign_phone_count, toilet_count, helper_count, 
+                total_facility_count
+            )
+            WITH 
+            -- 가동현황 체크 필요한 테이블 ('S' 제외)
+            cnt_elevator AS ( 
+                SELECT stn_nm, COUNT(*) as cnt FROM subway_elevator 
+                WHERE oprtng_situ IS DISTINCT FROM 'S' GROUP BY stn_nm 
+            ),
+            cnt_escalator AS ( 
+                SELECT stn_nm, COUNT(*) as cnt FROM subway_escalator 
+                WHERE oprtng_situ IS DISTINCT FROM 'S' GROUP BY stn_nm 
+            ),
+            cnt_lift AS ( 
+                SELECT stn_nm, COUNT(*) as cnt FROM subway_lift 
+                WHERE oprtng_situ IS DISTINCT FROM 'S' GROUP BY stn_nm 
+            ),
+            cnt_movingwalk AS ( 
+                SELECT stn_nm, COUNT(*) as cnt FROM subway_movingwalk 
+                WHERE oprtng_situ IS DISTINCT FROM 'S' GROUP BY stn_nm 
+            ),
+            
+            -- 가동현황이 없거나 체크 불필요한 테이블
+            cnt_charger AS ( SELECT stn_nm, COUNT(*) as cnt FROM subway_charger GROUP BY stn_nm ),
+            cnt_safe_platform AS ( SELECT stn_nm, COUNT(*) as cnt FROM subway_safe_platform GROUP BY stn_nm ),
+            cnt_sign_phone AS ( SELECT stn_nm, COUNT(*) as cnt FROM subway_sign_phone GROUP BY stn_nm ),
+            cnt_toilet AS ( SELECT stn_nm, COUNT(*) as cnt FROM subway_toilet GROUP BY stn_nm ),
+            cnt_helper AS ( SELECT stn_nm, COUNT(*) as cnt FROM subway_helper GROUP BY stn_nm )
+
+            SELECT 
+                s.name AS station_name,
+                ARRAY_AGG(DISTINCT s.station_cd) AS station_cd_list,
+                
+                COALESCE(SUM(c.cnt), 0) AS charger_count,
+                COALESCE(SUM(e.cnt), 0) AS elevator_count,
+                COALESCE(SUM(esc.cnt), 0) AS escalator_count,
+                COALESCE(SUM(l.cnt), 0) AS lift_count,
+                COALESCE(SUM(m.cnt), 0) AS movingwalk_count,
+                COALESCE(SUM(sp.cnt), 0) AS safe_platform_count,
+                COALESCE(SUM(sig.cnt), 0) AS sign_phone_count,
+                COALESCE(SUM(t.cnt), 0) AS toilet_count,
+                COALESCE(SUM(h.cnt), 0) AS helper_count,
+                
+                (
+                    COALESCE(SUM(c.cnt), 0) + COALESCE(SUM(e.cnt), 0) + COALESCE(SUM(esc.cnt), 0) +
+                    COALESCE(SUM(l.cnt), 0) + COALESCE(SUM(m.cnt), 0) + COALESCE(SUM(sp.cnt), 0) +
+                    COALESCE(SUM(sig.cnt), 0) + COALESCE(SUM(t.cnt), 0) + COALESCE(SUM(h.cnt), 0)
+                ) AS total_facility_count
+
+            FROM subway_station s
+                -- '역' 접미사 제거 후 이름 매칭
+                LEFT JOIN cnt_charger c ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(c.stn_nm), '역', '')
+                LEFT JOIN cnt_elevator e ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(e.stn_nm), '역', '')
+                LEFT JOIN cnt_escalator esc ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(esc.stn_nm), '역', '')
+                LEFT JOIN cnt_lift l ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(l.stn_nm), '역', '')
+                LEFT JOIN cnt_movingwalk m ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(m.stn_nm), '역', '')
+                LEFT JOIN cnt_safe_platform sp ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(sp.stn_nm), '역', '')
+                LEFT JOIN cnt_sign_phone sig ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(sig.stn_nm), '역', '')
+                LEFT JOIN cnt_toilet t ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(t.stn_nm), '역', '')
+                LEFT JOIN cnt_helper h ON REPLACE(TRIM(s.name), '역', '') = REPLACE(TRIM(h.stn_nm), '역', '')
+
+            GROUP BY s.name;
+            """
+            cursor.execute(sql)
+            conn.commit()
+            logger.info("subway_facility_total 업데이트 완료.")
+
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"subway_facility_total 업데이트 실패: {e}")
+
+
 def lambda_handler(event, context):
     conn = None
     total_processed_all = 0
@@ -465,26 +385,20 @@ def lambda_handler(event, context):
     try:
         conn = get_connection()
 
+        # 1. 개별 API 테이블 업데이트
         for config in API_CONFIG:
             endpoint = config["endpoint"]
             table_name = config["table"]
             mapping = config["mapping"]
             pk_column = config["pk"]
-            pk_gen_keys = config.get("pk_gen_keys")  # ID 생성 키 목록 else None
+            pk_gen_keys = config.get("pk_gen_keys")
 
             page_no = 1
             num_of_rows = 1000
-            # num_of_rows = 10 # localtest
-            total_count = 0
 
             logger.info(f"[{endpoint}] 시작")
 
             while True:
-                # API 호출 URL
-                # url = f"{BASE_URL}/{endpoint}?serviceKey={API_KEY}&dataType=JSON&pageNo={page_no}&numOfRows={num_of_rows}"
-                # local test 용도
-
-                # params dictionary 사용
                 params = {
                     "serviceKey": API_KEY,
                     "dataType": "JSON",
@@ -492,11 +406,9 @@ def lambda_handler(event, context):
                     "numOfRows": num_of_rows,
                 }
 
-                # slash 중복 방지
                 request_url = f"{BASE_URL.rstrip('/')}/{endpoint}"
 
                 try:
-                    # requests가 알아서 인코딩 처리
                     response = requests.get(request_url, params=params, timeout=30)
                     if response.status_code != 200:
                         logger.error(f"HTTP error: {response.status_code}")
@@ -504,38 +416,23 @@ def lambda_handler(event, context):
 
                     try:
                         raw_data = response.json()
-                        # logger.info(
-                        #     f"[{endpoint}] Raw Response: {json.dumps(raw_data, ensure_ascii=False)[:200]}..."
-                        # )
                     except json.JSONDecodeError:
                         logger.error(f"응답이 JSON이 아님: {response.text[:100]}")
                         break
 
                     header = raw_data.get("header")
                     if not header:
-                        # 만약 header가 없다면 'response' 안에 감싸져 있는지 확인 (공공데이터 표준)
                         header = raw_data.get("response", {}).get("header", {})
 
                     if header.get("resultCode") != "00":
-                        # resultCode가 없으면 None이 반환되므로 에러 처리됨
-                        msg = header.get(
-                            "resultMsg", f"알 수 없는 에러 (전체 응답: {raw_data})"
-                        )
+                        msg = header.get("resultMsg", f"알 수 없는 에러")
                         logger.error(f"API Error: {msg}")
                         break
-
-                    # check Total Count
-                    # if page_no == 1:
-                    #     body = raw_data.get("body", {})
-                    #     total_count = body.get("totalCount", 0)
-                    #     if total_count == 0:
-                    #         break
 
                     rows = parse_api_response(raw_data)
                     if not rows:
                         break
 
-                    # DB 저장
                     count = save_to_db_dynamic(
                         conn, table_name, pk_column, mapping, rows, pk_gen_keys
                     )
@@ -552,6 +449,10 @@ def lambda_handler(event, context):
                     logger.error(f"loop error: {e}")
                     break
 
+        # 2. 요약 테이블(subway_facility_total) 업데이트 실행
+        if conn:
+            update_summary_table(conn)
+
     except Exception as e:
         logger.info(f"치명적 오류: {e}")
     finally:
@@ -560,25 +461,18 @@ def lambda_handler(event, context):
 
     return {
         "statusCode": 200,
-        "body": json.dumps(f"작업 완료: 총 {total_processed_all}"),
+        "body": json.dumps(
+            f"작업 완료: 총 {total_processed_all}건 업데이트 및 요약 테이블 갱신"
+        ),
     }
 
 
-# local test용 코드 추가
-
 if __name__ == "__main__":
-
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
-
     print("local test started")
-
-    # Mock event data
     test_event = {}
     test_context = None
-
-    # run lambda handler
     result = lambda_handler(test_event, test_context)
-
     print(f"test completed. result: {result}")
