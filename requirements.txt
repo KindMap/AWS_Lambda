@@ -10,3 +10,7 @@ python-dotenv==1.0.0
 # aws bedrock
 boto3
 botocore
+
+# aws langchain
+langchain
+langchain_aws
